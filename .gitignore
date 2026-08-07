@@ -1,18 +1,50 @@
-*.iml
-.gradle
+# Gradle files
+.gradle/
+build/
+/build
+/captures
+captures/
+.externalNativeBuild/
+.cxx/
+.externalNativeBuild
+.cxx
+
+# Local configuration file (sdk path, etc)
 /local.properties
+local.properties
+
+# Log/OS files
+*.log
+.DS_Store
+
+# Android Studio / IntelliJ generated files
+*.iml
+.idea/
 /.idea/caches
 /.idea/libraries
 /.idea/modules.xml
 /.idea/workspace.xml
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
+misc.xml
+deploymentTargetDropDown.xml
+render.experimental.xml
+
+# Build outputs
+*.aab
+*.apk
+output-metadata.json
+
+# Keystore / secrets
+*.jks
+*.keystore
+google-services.json
+
+# Google Services / Firebase
+google-services.json
+
+# Android Profiling
+*.hprof
 
 # Exclude unrelated projects in this folder
 ShopNearMe/
@@ -23,8 +55,3 @@ gamer/
 jump/
 demo/
 Platform/
-
-# Extra safety for secrets
-*.keystore
-*.jks
-google-services.json
