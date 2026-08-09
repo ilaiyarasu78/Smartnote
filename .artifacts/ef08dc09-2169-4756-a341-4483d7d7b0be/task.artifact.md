@@ -1,0 +1,10 @@
+- `[x]` Add Firebase and Security dependencies
+- `[x]` Implement `EncryptionHelper.kt` for data security
+- `[x]` Implement `AuthManager.kt` with Firebase integration
+- `[x]` Update `DriveBackupManager.kt` with encryption and silent auth
+- `[x]` Update `AutoBackupWorker.kt` and `AutoSyncScheduler.kt`
+- `[x]` Update `PreferencesManager.kt` with sync settings
+- `[x]` Redesign `SettingsScreen.kt` for modern UX
+- `[x]` Stop rapid-fire backup loop (disable auto-retry)
+- `[x]` Safety: Prevent empty note backup during account migration
+- `[ ]` Verify end-to-end sync and security

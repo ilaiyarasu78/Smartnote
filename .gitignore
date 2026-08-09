@@ -38,7 +38,6 @@ output-metadata.json
 # Keystore / secrets
 *.jks
 *.keystore
-google-services.json
 
 # Google Services / Firebase
 google-services.json
@@ -54,4 +53,4 @@ game2/
 gamer/
 jump/
 demo/
-Platform/.idea/ 
+Platform/
