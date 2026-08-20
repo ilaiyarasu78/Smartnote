@@ -1,6 +1,6 @@
-package com.ilaiyarasu.smartnote.util
+package com.ilaiyarasu.smartnoteapp.util
 
-import com.ilaiyarasu.smartnote.BuildConfig
+import com.ilaiyarasu.smartnoteapp.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONArray

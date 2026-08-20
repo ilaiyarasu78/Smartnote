@@ -30,7 +30,8 @@ class DriveBackupManager(private val context: Context) {
             .requestScopes(Scope(DriveScopes.DRIVE_FILE))
             .requestIdToken("664332059630-0f92egn5i4mont1kn1maqibq55lcvli6.apps.googleusercontent.com")
             .build()
-        return GoogleSignIn.getClient(context, options)
+        // Use applicationContext for the client to avoid activity-linked lifecycle issues
+        return GoogleSignIn.getClient(context.applicationContext, options)
     }
 
     fun getLastSignedInAccount(): GoogleSignInAccount? =
@@ -49,10 +50,12 @@ class DriveBackupManager(private val context: Context) {
     }
 
     private fun buildDriveService(account: GoogleSignInAccount): Drive {
+        // Ensure we use the account from the most recent sign-in/silent sign-in
         val credential = GoogleAccountCredential.usingOAuth2(
             context, listOf(DriveScopes.DRIVE_FILE)
         )
         credential.selectedAccount = account.account
+        
         return Drive.Builder(
             NetHttpTransport(),
             GsonFactory.getDefaultInstance(),
@@ -73,6 +76,7 @@ class DriveBackupManager(private val context: Context) {
                 put("isDeleted", note.isDeleted)
                 put("reminderTime", note.reminderTime ?: JSONObject.NULL)
                 put("isPinned", note.isPinned)
+                put("ownerAccount", note.ownerAccount)
             }
             array.put(obj)
         }
@@ -94,7 +98,8 @@ class DriveBackupManager(private val context: Context) {
                     updatedAt = obj.optLong("updatedAt", System.currentTimeMillis()),
                     isDeleted = obj.optBoolean("isDeleted", false),
                     reminderTime = if (obj.isNull("reminderTime")) null else obj.optLong("reminderTime"),
-                    isPinned = obj.optBoolean("isPinned", false)
+                    isPinned = obj.optBoolean("isPinned", false),
+                    ownerAccount = obj.optString("ownerAccount", "local")
                 )
             )
         }
@@ -132,10 +137,12 @@ class DriveBackupManager(private val context: Context) {
     suspend fun backupNotes(account: GoogleSignInAccount, notes: List<Note>): Result<Unit> =
         withContext(Dispatchers.IO) {
             try {
+                // Use account directly, no silentSignIn() override to prevent cross-account leaks
                 val service = buildDriveService(account)
+                
                 val jsonContent = notesToJson(notes)
-                val encryptedContent = EncryptionHelper.encrypt(context, jsonContent)
-                val content = ByteArrayContent("application/octet-stream", encryptedContent.toByteArray())
+                // We use application/json here so it survives uninstalls (no local key needed)
+                val content = ByteArrayContent("application/json", jsonContent.toByteArray())
 
                 val existingFileId = findBackupFileId(service)
                 if (existingFileId != null) {
@@ -148,6 +155,7 @@ class DriveBackupManager(private val context: Context) {
                 }
                 Result.success(Unit)
             } catch (e: Exception) {
+                android.util.Log.e("DriveDebug", "Backup failed", e)
                 Result.failure(e)
             }
         }
@@ -155,6 +163,7 @@ class DriveBackupManager(private val context: Context) {
     suspend fun restoreNotes(account: GoogleSignInAccount): Result<List<Note>> =
         withContext(Dispatchers.IO) {
             try {
+                // Use account directly, no silentSignIn() override to prevent cross-account leaks
                 val service = buildDriveService(account)
                 val fileId = findBackupFileId(service)
                     ?: return@withContext Result.failure(Exception("No backup found on Google Drive"))
@@ -162,8 +171,7 @@ class DriveBackupManager(private val context: Context) {
                 android.util.Log.d("DriveDebug", "Starting download of file: $fileId")
                 val outputStream = java.io.ByteArrayOutputStream()
                 service.files().get(fileId).executeMediaAndDownloadTo(outputStream)
-                val encryptedContent = outputStream.toString("UTF-8")
-                val jsonContent = EncryptionHelper.decrypt(context, encryptedContent)
+                val jsonContent = outputStream.toString("UTF-8")
                 android.util.Log.d("DriveDebug", "Download complete, parsing JSON...")
 
                 val notes = jsonToNotes(jsonContent)

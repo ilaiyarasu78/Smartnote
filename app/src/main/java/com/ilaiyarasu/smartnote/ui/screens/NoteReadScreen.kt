@@ -90,8 +90,10 @@ fun NoteReadScreen(
                             Icon(Icons.Default.Edit, contentDescription = "Edit")
                         }
                         IconButton(onClick = {
-                            viewModel.deleteNote(currentNote)
-                            onBack()
+                            coroutineScope.launch {
+                                viewModel.deleteNote(currentNote)
+                                onBack()
+                            }
                         }) {
                             Icon(Icons.Default.Delete, contentDescription = "Delete")
                         }
@@ -262,13 +264,15 @@ fun NoteReadScreen(
             confirmButton = {
                 TextButton(onClick = {
                     note?.let { currentNote ->
-                        viewModel.updateNote(
-                            currentNote,
-                            currentNote.title,
-                            result,
-                            currentNote.category,
-                            currentNote.reminderTime
-                        )
+                        coroutineScope.launch {
+                            viewModel.updateNote(
+                                currentNote,
+                                currentNote.title,
+                                result,
+                                currentNote.category,
+                                currentNote.reminderTime
+                            )
+                        }
                     }
                     translatedResult = null
                 }) { Text("Replace note") }

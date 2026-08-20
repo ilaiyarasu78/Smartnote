@@ -15,7 +15,7 @@ class BootReceiver : BroadcastReceiver() {
 
         CoroutineScope(Dispatchers.IO).launch {
             val db = NoteDatabase.getDatabase(context)
-            val notes = db.noteDao().getAllNotesForSync()
+            val notes = db.noteDao().getAllNotesForAllAccounts()
             notes.filter { it.reminderTime != null && it.reminderTime!! > System.currentTimeMillis() }
                 .forEach { note ->
                     ReminderScheduler.scheduleReminder(

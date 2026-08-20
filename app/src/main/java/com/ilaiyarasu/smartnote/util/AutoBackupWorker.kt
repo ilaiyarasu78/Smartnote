@@ -22,27 +22,55 @@ class AutoBackupWorker(
         }
 
         val driveBackupManager = DriveBackupManager(applicationContext)
-        val account = driveBackupManager.getLastSignedInAccount()
-            ?: driveBackupManager.silentSignIn()
+        
+        // 1. Determine which account to sync
+        // Prefer the email passed in the task data to prevent cross-account leaks during switches
+        val targetEmail = inputData.getString("target_email")
+        val account = if (targetEmail != null) {
+            // If a specific account was requested, ensure we can still get a valid client for it
+            driveBackupManager.getLastSignedInAccount()?.takeIf { it.email == targetEmail }
+                ?: driveBackupManager.silentSignIn()?.takeIf { it.email == targetEmail }
+        } else {
+            driveBackupManager.getLastSignedInAccount() ?: driveBackupManager.silentSignIn()
+        }
 
         if (account == null) {
-            Log.d("AutoSyncDebug", "No signed-in account found — skipping backup")
+            Log.d("AutoSyncDebug", "Target account ($targetEmail) not available — skipping")
             return Result.failure()
         }
 
+        val owner = account.email ?: "local"
         val dao = NoteDatabase.getDatabase(applicationContext).noteDao()
         val repository = NoteRepository(dao)
-        val notes = repository.getAllNotesForSync()
+
+        // 1. AUTO-RESTORE: Download latest from cloud and MERGE (not replace)
+        driveBackupManager.restoreNotes(account).fold(
+            onSuccess = { remoteNotes ->
+                Log.d("AutoSyncDebug", "Auto-Restore: Merging ${remoteNotes.size} notes from cloud")
+                // Use mergeNotes to prevent deleting local work that hasn't synced yet
+                repository.mergeNotes(remoteNotes, owner)
+            },
+            onFailure = { 
+                Log.d("AutoSyncDebug", "Auto-Restore: No cloud backup found or failed: ${it.message}")
+            }
+        )
+
+        // 2. AUTO-BACKUP: Upload final merged state back to cloud
+        val notes = repository.getAllNotesForSync(owner)
+        if (notes.isEmpty()) {
+            Log.d("AutoSyncDebug", "No local notes to back up. Sync complete.")
+            return Result.success()
+        }
 
         return driveBackupManager.backupNotes(account, notes).fold(
             onSuccess = {
-                Log.d("AutoSyncDebug", "Backup succeeded")
+                Log.d("AutoSyncDebug", "Auto-Backup: Success")
                 prefs.lastSyncTimestamp = System.currentTimeMillis()
                 Result.success()
             },
             onFailure = { e ->
-                Log.d("AutoSyncDebug", "Backup failed: ${e.message}")
-                Result.retry()
+                Log.d("AutoSyncDebug", "Auto-Backup: Failed: ${e.message}")
+                Result.failure()
             }
         )
     }

@@ -25,16 +25,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.common.api.ApiException
-import com.ilaiyarasu.smartnote.BuildConfig
+import com.ilaiyarasu.smartnote.ui.theme.PinkAccent
+import com.ilaiyarasu.smartnote.ui.theme.PurplePrimary
+import com.ilaiyarasu.smartnote.ui.theme.SuccessGreen
 import com.ilaiyarasu.smartnote.util.AutoSyncScheduler
 import com.ilaiyarasu.smartnote.util.DriveBackupManager
 import com.ilaiyarasu.smartnote.util.PermissionHelper
@@ -62,7 +66,7 @@ fun SettingsScreen(
 
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val notes by viewModel.notes.collectAsState()
+    val notes by viewModel.allNotesUnfiltered.collectAsState()
 
     var notificationGranted by remember { mutableStateOf(PermissionHelper.hasNotificationPermission(context)) }
     var exactAlarmGranted by remember { mutableStateOf(PermissionHelper.hasExactAlarmPermission(context)) }
@@ -90,7 +94,12 @@ fun SettingsScreen(
             val signedIn = driveBackupManager.silentSignIn()
             if (signedIn != null) {
                 account = signedIn
+                preferencesManager.lastSignedInEmail = signedIn.email
+                viewModel.setCurrentAccount(signedIn.email ?: "local")
             }
+        } else {
+            preferencesManager.lastSignedInEmail = account?.email
+            viewModel.setCurrentAccount(account?.email ?: "local")
         }
         if (account != null && autoSyncEnabled) {
             AutoSyncScheduler.schedulePeriodicSync(context)
@@ -109,9 +118,50 @@ fun SettingsScreen(
         try {
             val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
             val signedInAccount = task.getResult(ApiException::class.java)
-            account = signedInAccount
-            driveError = null
-            if (autoSyncEnabled) AutoSyncScheduler.schedulePeriodicSync(context)
+            val oldOwner = preferencesManager.lastSignedInEmail ?: "local"
+            val newOwner = signedInAccount.email ?: "local"
+            val oldAccount = account
+
+            coroutineScope.launch {
+                val currentNotesSnapshot = notes // 1. Capture current data
+                
+                // 2. UI-FIRST SWITCH: Update the UI and silo state immediately
+                if (oldOwner == "local") {
+                    viewModel.migrateNotesToNewAccount(oldOwner, newOwner)
+                } else {
+                    viewModel.setCurrentAccount(newOwner)
+                }
+                account = signedInAccount
+                preferencesManager.lastSignedInEmail = newOwner
+                driveError = null
+
+                // 3. IMMEDIATE RE-SCHEDULE: Set up the periodic timer for the new account silo
+                if (autoSyncEnabled) {
+                    AutoSyncScheduler.schedulePeriodicSync(context)
+                }
+
+                // 4. BACKGROUND BACKUP: Sync the old account without blocking the UI
+                launch {
+                    if (oldAccount != null && currentNotesSnapshot.isNotEmpty()) {
+                        driveBackupManager.backupNotes(oldAccount, currentNotesSnapshot)
+                    }
+                }
+
+                // 5. ASYNC RESTORE: Pull new data while the user interacts with the new silo
+                launch {
+                    driveStatus = "Restoring..."
+                    driveBackupManager.restoreNotes(signedInAccount).fold(
+                        onSuccess = { restored ->
+                            viewModel.restoreNotesByOwner(newOwner, restored)
+                            driveStatus = "Restored ${restored.size} notes"
+                        },
+                        onFailure = {
+                            // Clear the restoring status if no cloud data is found
+                            driveStatus = null
+                        }
+                    )
+                }
+            }
         } catch (e: ApiException) {
             driveError = "Sign-in failed: ${e.statusCode}"
         }
@@ -122,6 +172,7 @@ fun SettingsScreen(
     ) { granted -> notificationGranted = granted }
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             TopAppBar(
                 title = { Text("Settings", fontWeight = FontWeight.Bold) },
@@ -140,15 +191,16 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
         ) {
-            // Profile Section
             if (account != null) {
                 ProfileCard(account!!) {
-                    signInLauncher.launch(driveBackupManager.getSignInClient().signInIntent)
+                    AutoSyncScheduler.cancelAll(context)
+                    driveBackupManager.getSignInClient().signOut().addOnCompleteListener {
+                        signInLauncher.launch(driveBackupManager.getSignInClient().signInIntent)
+                    }
                 }
                 Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // Appearance & Security Section
             SettingsSection(title = "General") {
                 SettingsRow(
                     icon = Icons.Default.DarkMode,
@@ -193,7 +245,6 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Cloud & Sync Section
             SettingsSection(title = "Cloud & Sync") {
                 if (account == null) {
                     Text(
@@ -235,6 +286,7 @@ fun SettingsScreen(
                                 preferencesManager.isAutoSyncEnabled = enabled
                                 if (enabled) {
                                     AutoSyncScheduler.schedulePeriodicSync(context)
+                                    AutoSyncScheduler.triggerImmediateSync(context)
                                 } else {
                                     AutoSyncScheduler.cancelAll(context)
                                 }
@@ -244,7 +296,7 @@ fun SettingsScreen(
 
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Button(
                             onClick = {
@@ -260,7 +312,7 @@ fun SettingsScreen(
                                             lastSync = now
                                             driveStatus = "Synced Successfully"
                                         },
-                                        onFailure = { 
+                                        onFailure = {
                                             driveError = "Backup failed"
                                             driveStatus = null
                                         }
@@ -269,17 +321,38 @@ fun SettingsScreen(
                                 }
                             },
                             enabled = !isBackingUp && !isRestoring,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f).height(48.dp),
+                            shape = RoundedCornerShape(24.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                            contentPadding = PaddingValues()
                         ) {
-                            Text("Backup Now")
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        Brush.horizontalGradient(listOf(PinkAccent, PurplePrimary)),
+                                        RoundedCornerShape(24.dp)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.CloudUpload, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Backup Now", color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
 
                         OutlinedButton(
                             onClick = { showRestoreConfirm = true },
                             enabled = !isBackingUp && !isRestoring,
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.weight(1f).height(48.dp),
+                            shape = RoundedCornerShape(24.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, PurplePrimary)
                         ) {
-                            Text("Restore Data")
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = PurplePrimary, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Restore Data", color = PurplePrimary, fontWeight = FontWeight.Bold)
                         }
                     }
 
@@ -296,7 +369,6 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Permissions Section
             SettingsSection(title = "Reminders") {
                 if (allPermissionsGranted && !permissionsExpanded) {
                     Row(
@@ -310,7 +382,7 @@ fun SettingsScreen(
                             Icon(
                                 Icons.Default.CheckCircle,
                                 contentDescription = null,
-                                tint = Color(0xFF4CAF50),
+                                tint = SuccessGreen,
                                 modifier = Modifier.size(24.dp)
                             )
                             Spacer(modifier = Modifier.width(12.dp))
@@ -354,21 +426,15 @@ fun SettingsScreen(
                 }
             }
 
-            if (BuildConfig.DEBUG) {
-                Spacer(modifier = Modifier.height(24.dp))
-                OutlinedButton(
-                    onClick = {
-                        androidx.work.WorkManager.getInstance(context).enqueue(
-                            androidx.work.OneTimeWorkRequestBuilder<com.ilaiyarasu.smartnote.util.AutoBackupWorker>().build()
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Debug: Run background sync")
-                }
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(24.dp))
+            Text(
+                text = "SmartNote  •  v1.0.0",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 
@@ -395,7 +461,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showRestoreConfirm = false },
             title = { Text("Restore from Drive?") },
-            text = { Text("This will replace all your current notes with the backed-up version from Google Drive. This action cannot be undone.") },
+            text = { Text("This will replace all your current notes for this account with the backed-up version from Google Drive. This action cannot be undone.") },
             confirmButton = {
                 TextButton(onClick = {
                     val currentAccount = account
@@ -404,13 +470,16 @@ fun SettingsScreen(
                         isRestoring = true
                         driveStatus = "Restoring..."
                         driveError = null
+                        val currentOwner = currentAccount.email ?: "local"
                         coroutineScope.launch {
                             driveBackupManager.restoreNotes(currentAccount).fold(
                                 onSuccess = { restoredNotes ->
-                                    viewModel.restoreAllNotes(restoredNotes)
+                                    viewModel.restoreNotesByOwner(currentOwner, restoredNotes)
                                     driveStatus = "Restored ${restoredNotes.size} notes"
                                 },
-                                onFailure = { driveError = it.message ?: "Restore failed" }
+                                onFailure = { e ->
+                                    driveError = "Restore failed: ${e.message ?: e.javaClass.simpleName}"
+                                }
                             )
                             isRestoring = false
                         }
@@ -432,6 +501,7 @@ fun SettingsScreen(
                 TextButton(onClick = {
                     driveBackupManager.getSignInClient().signOut()
                     account = null
+                    viewModel.setCurrentAccount("local")
                     AutoSyncScheduler.cancelAll(context)
                     showSignOutConfirm = false
                 }) { Text("Sign Out") }
@@ -446,9 +516,11 @@ fun SettingsScreen(
 @Composable
 fun ProfileCard(account: GoogleSignInAccount, onChangeAccount: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onChangeAccount() },
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
@@ -458,19 +530,24 @@ fun ProfileCard(account: GoogleSignInAccount, onChangeAccount: () -> Unit) {
                 modifier = Modifier
                     .size(48.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary),
+                    .background(
+                        Brush.linearGradient(
+                            listOf(PinkAccent, PurplePrimary)
+                        )
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = account.email?.take(1)?.uppercase() ?: "?",
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    style = MaterialTheme.typography.titleLarge
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
                 )
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = account.displayName ?: "User",
+                    text = (account.displayName ?: "User").uppercase(),
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
@@ -480,9 +557,11 @@ fun ProfileCard(account: GoogleSignInAccount, onChangeAccount: () -> Unit) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = onChangeAccount) {
-                Icon(Icons.Default.SwitchAccount, contentDescription = "Change Account")
-            }
+            Icon(
+                Icons.Default.ChevronRight,
+                contentDescription = "Account details",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -497,56 +576,63 @@ fun SyncStatusCard(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val infiniteTransition = rememberInfiniteTransition(label = "SyncRotation")
-                val rotation by infiniteTransition.animateFloat(
-                    initialValue = 0f,
-                    targetValue = 360f,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(1000, easing = LinearEasing),
-                        repeatMode = RepeatMode.Restart
-                    ),
-                    label = "Rotation"
-                )
-
-                Icon(
-                    imageVector = Icons.Default.Sync,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp).let { if (isSyncing) it.rotate(rotation) else it },
-                    tint = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.width(8.dp))
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.CloudUpload,
+                contentDescription = null,
+                modifier = Modifier.size(28.dp),
+                tint = if (error != null) MaterialTheme.colorScheme.error else PurplePrimary
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (error != null) "Sync Issue" else if (isSyncing) "Synchronizing..." else "Cloud Sync Active",
-                    style = MaterialTheme.typography.labelLarge,
+                    text = if (error != null) "Sync Issue" else "Cloud Sync Active",
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
-                    color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    color = if (error != null) MaterialTheme.colorScheme.error else PurplePrimary
                 )
-            }
-            
-            Spacer(modifier = Modifier.height(8.dp))
-            
-            val noteLabel = if (noteCount == 1) "note" else "notes"
-            Text("• $noteCount $noteLabel tracked", style = MaterialTheme.typography.bodySmall)
-            
-            if (lastSync > 0L) {
-                val date = Date(lastSync)
-                val format = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-                Text("• Last backed up: ${format.format(date)}", style = MaterialTheme.typography.bodySmall)
-            }
-
-            if (status != null || error != null) {
                 Spacer(modifier = Modifier.height(4.dp))
+                val noteLabel = if (noteCount == 1) "note" else "notes"
                 Text(
-                    text = status ?: error ?: "",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary,
-                    fontWeight = FontWeight.Medium
+                    "• $noteCount $noteLabel tracked",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                if (lastSync > 0L) {
+                    val date = Date(lastSync)
+                    val format = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                    Text(
+                        "• Last backed up: ${format.format(date)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            if (!isSyncing && error == null) {
+                Surface(
+                    shape = RoundedCornerShape(50),
+                    color = SuccessGreen.copy(alpha = 0.15f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = SuccessGreen
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Up to date", color = SuccessGreen, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }

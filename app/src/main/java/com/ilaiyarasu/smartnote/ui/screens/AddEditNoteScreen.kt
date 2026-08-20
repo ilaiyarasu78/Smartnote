@@ -2,11 +2,12 @@ package com.ilaiyarasu.smartnote.ui.screens
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -22,16 +23,15 @@ import com.ilaiyarasu.smartnote.data.Note
 import com.ilaiyarasu.smartnote.data.noteTemplates
 import com.ilaiyarasu.smartnote.ui.components.LanguagePickerDropdown
 import com.ilaiyarasu.smartnote.ui.components.VoiceInputButton
-import com.ilaiyarasu.smartnote.util.AppLanguage
 import com.ilaiyarasu.smartnote.util.ReminderScheduler
 import com.ilaiyarasu.smartnote.util.TextToSpeechHelper
 import com.ilaiyarasu.smartnote.util.TranslationHelper
 import com.ilaiyarasu.smartnote.util.supportedAppLanguages
 import com.ilaiyarasu.smartnote.viewmodel.NoteViewModel
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 private val categories = listOf("Study", "Work", "Personal")
 
@@ -63,6 +63,21 @@ fun AddEditNoteScreen(
 
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    LaunchedEffect(Unit) {
+        viewModel.events.collectLatest { event ->
+            when (event) {
+                is NoteViewModel.UiEvent.NoteSaved -> {
+                    android.widget.Toast.makeText(context, "Note saved", android.widget.Toast.LENGTH_SHORT).show()
+                }
+                is NoteViewModel.UiEvent.Error -> {
+                    android.widget.Toast.makeText(context, event.message, android.widget.Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    val currentLocale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
     val ttsHelper = remember { TextToSpeechHelper(context) }
     val isSpeaking by ttsHelper.isSpeaking.collectAsState()
     val ttsError by ttsHelper.error.collectAsState()
@@ -111,14 +126,16 @@ fun AddEditNoteScreen(
                 title = { Text(if (noteId == null) "New Note" else "Edit Note") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
                     if (existingNote != null) {
                         IconButton(onClick = {
-                            viewModel.deleteNote(existingNote!!)
-                            onBack()
+                            coroutineScope.launch {
+                                viewModel.deleteNote(existingNote!!)
+                                onBack()
+                            }
                         }) {
                             Icon(Icons.Default.Delete, contentDescription = "Delete")
                         }
@@ -130,20 +147,22 @@ fun AddEditNoteScreen(
                                 return@IconButton
                             }
                             
-                            val savedNoteId = if (existingNote != null) {
-                                viewModel.updateNote(existingNote!!, title, content, category, reminderTime)
-                                existingNote!!.id
-                            } else {
-                                viewModel.addNote(title, content, category, reminderTime)
-                            }
+                            coroutineScope.launch {
+                                val savedNoteId = if (existingNote != null) {
+                                    viewModel.updateNote(existingNote!!, title, content, category, reminderTime)
+                                    existingNote!!.id
+                                } else {
+                                    viewModel.addNote(title, content, category, reminderTime)
+                                }
 
-                            reminderTime?.let { time ->
-                                ReminderScheduler.scheduleReminder(context, savedNoteId, title, content, time)
-                            } ?: run {
-                                existingNote?.let { ReminderScheduler.cancelReminder(context, it.id) }
+                                reminderTime?.let { time ->
+                                    ReminderScheduler.scheduleReminder(context, savedNoteId, title, content, time)
+                                } ?: run {
+                                    existingNote?.let { ReminderScheduler.cancelReminder(context, it.id) }
+                                }
+                                
+                                onBack()
                             }
-                            
-                            onBack()
                         }
                     ) {
                         Icon(Icons.Default.Check, contentDescription = "Save")
@@ -185,7 +204,7 @@ fun AddEditNoteScreen(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .menuAnchor()
+                        .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled = true)
                 )
                 ExposedDropdownMenu(
                     expanded = categoryMenuExpanded,
@@ -242,7 +261,10 @@ fun AddEditNoteScreen(
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
             ) {
                 VoiceInputButton(
                     onTextRecognized = { recognized ->
@@ -304,11 +326,18 @@ fun AddEditNoteScreen(
                         }
                     }
                 }
+            }
 
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 TextButton(onClick = { showDatePicker = true }) {
                     Text(
                         if (reminderTime != null)
-                            "Reminder: ${SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(reminderTime!!))}"
+                            "Reminder: ${SimpleDateFormat("dd MMM, hh:mm a", currentLocale).format(Date(reminderTime!!))}"
                         else
                             "Set Reminder"
                     )

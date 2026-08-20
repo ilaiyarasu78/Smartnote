@@ -11,23 +11,44 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface NoteDao {
 
-    @Query("SELECT * FROM notes WHERE isDeleted = 0 ORDER BY isPinned DESC, updatedAt DESC")
-    fun getAllNotes(): Flow<List<Note>>
+    @Query("SELECT * FROM notes WHERE isDeleted = 0 AND ownerAccount = :owner ORDER BY isPinned DESC, updatedAt DESC")
+    fun getAllNotesByDateDesc(owner: String): Flow<List<Note>>
 
-    @Query("SELECT * FROM notes WHERE isDeleted = 0 AND category = :category ORDER BY isPinned DESC, updatedAt DESC")
-    fun getNotesByCategory(category: String): Flow<List<Note>>
+    @Query("SELECT * FROM notes WHERE isDeleted = 0 AND ownerAccount = :owner ORDER BY isPinned DESC, updatedAt ASC")
+    fun getAllNotesByDateAsc(owner: String): Flow<List<Note>>
+
+    @Query("SELECT * FROM notes WHERE isDeleted = 0 AND ownerAccount = :owner ORDER BY isPinned DESC, title COLLATE NOCASE ASC")
+    fun getAllNotesByTitleAsc(owner: String): Flow<List<Note>>
+
+    @Query("SELECT * FROM notes WHERE isDeleted = 0 AND category = :category AND ownerAccount = :owner ORDER BY isPinned DESC, updatedAt DESC")
+    fun getNotesByCategoryDateDesc(category: String, owner: String): Flow<List<Note>>
+
+    @Query("SELECT * FROM notes WHERE isDeleted = 0 AND category = :category AND ownerAccount = :owner ORDER BY isPinned DESC, updatedAt ASC")
+    fun getNotesByCategoryDateAsc(category: String, owner: String): Flow<List<Note>>
+
+    @Query("SELECT * FROM notes WHERE isDeleted = 0 AND category = :category AND ownerAccount = :owner ORDER BY isPinned DESC, title COLLATE NOCASE ASC")
+    fun getNotesByCategoryTitleAsc(category: String, owner: String): Flow<List<Note>>
 
     @Query(
-        "SELECT * FROM notes WHERE isDeleted = 0 AND (title LIKE '%' || :query || '%' " +
+        "SELECT * FROM notes WHERE isDeleted = 0 AND ownerAccount = :owner AND (title LIKE '%' || :query || '%' " +
                 "OR content LIKE '%' || :query || '%') ORDER BY isPinned DESC, updatedAt DESC"
     )
-    fun searchNotes(query: String): Flow<List<Note>>
+    fun searchNotesSortedByDate(query: String, owner: String): Flow<List<Note>>
+
+    @Query(
+        "SELECT * FROM notes WHERE isDeleted = 0 AND ownerAccount = :owner AND (title LIKE '%' || :query || '%' " +
+                "OR content LIKE '%' || :query || '%') ORDER BY isPinned DESC, title ASC"
+    )
+    fun searchNotesSortedByTitle(query: String, owner: String): Flow<List<Note>>
 
     @Query("SELECT * FROM notes WHERE id = :id")
     suspend fun getNoteById(id: String): Note?
 
     @Query("SELECT * FROM notes")
-    suspend fun getAllNotesForSync(): List<Note>
+    suspend fun getAllNotesForAllAccounts(): List<Note>
+
+    @Query("SELECT * FROM notes WHERE ownerAccount = :owner")
+    suspend fun getAllNotesForSync(owner: String): List<Note>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertNote(note: Note)
@@ -52,4 +73,10 @@ interface NoteDao {
 
     @Query("DELETE FROM notes")
     suspend fun deleteAllNotes()
+
+    @Query("DELETE FROM notes WHERE ownerAccount = :owner")
+    suspend fun deleteNotesByOwner(owner: String)
+
+    @Query("UPDATE notes SET ownerAccount = :newOwner WHERE ownerAccount = :oldOwner")
+    suspend fun reassignOwner(oldOwner: String, newOwner: String)
 }

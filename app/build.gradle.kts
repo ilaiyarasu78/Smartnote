@@ -4,11 +4,11 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
-    id("com.google.gms.google-services")
+    alias(libs.plugins.google.gms.google.services)
 }
 
 android {
-    namespace = "com.ilaiyarasu.smartnote"
+    namespace = "com.ilaiyarasu.smartnoteapp"
     compileSdk = 37
 
     val localProperties = Properties()
@@ -18,7 +18,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.ilaiyarasu.smartnote"
+        applicationId = "com.ilaiyarasu.smartnoteapp"
         minSdk = 24
         targetSdk = 37
         versionCode = 1
@@ -33,11 +33,24 @@ android {
         )
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("C:/Users/ilaiy/smartnote_key.jks")
+            storePassword = "ilai6369178770"
+            keyAlias = "smartnote"
+            keyPassword = "ilai6369178770"
+        }
+    }
+
     buildTypes {
         release {
-            optimization {
-                enable = false
-            }
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
     compileOptions {

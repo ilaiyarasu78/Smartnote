@@ -15,7 +15,17 @@ class PreferencesManager(context: Context) {
         private const val KEY_APP_THEME = "app_theme"
         private const val KEY_IS_AUTO_SYNC_ENABLED = "is_auto_sync_enabled"
         private const val KEY_LAST_SYNC_TIMESTAMP = "last_sync_timestamp"
+        private const val KEY_LAST_SIGNED_IN_EMAIL = "last_signed_in_email"
+        private const val KEY_USER_NAME = "user_name"
     }
+
+    var userName: String?
+        get() = sharedPreferences.getString(KEY_USER_NAME, null)
+        set(value) = sharedPreferences.edit { putString(KEY_USER_NAME, value) }
+
+    var lastSignedInEmail: String?
+        get() = sharedPreferences.getString(KEY_LAST_SIGNED_IN_EMAIL, null)
+        set(value) = sharedPreferences.edit { putString(KEY_LAST_SIGNED_IN_EMAIL, value) }
 
     var isAutoSyncEnabled: Boolean
         get() = sharedPreferences.getBoolean(KEY_IS_AUTO_SYNC_ENABLED, true)

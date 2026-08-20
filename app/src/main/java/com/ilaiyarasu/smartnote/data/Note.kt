@@ -14,5 +14,6 @@ data class Note(
     val updatedAt: Long = System.currentTimeMillis(),
     val isDeleted: Boolean = false,
     val reminderTime: Long? = null,
-    val isPinned: Boolean = false
+    val isPinned: Boolean = false,
+    val ownerAccount: String = "local"
 )
