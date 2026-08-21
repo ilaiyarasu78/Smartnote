@@ -22,7 +22,7 @@ class AuthManager(private val context: Context) {
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestEmail()
             .requestScopes(Scope(DriveScopes.DRIVE_FILE))
-            .requestIdToken("664332059630-0f92egn5i4mont1kn1maqibq55lcvli6.apps.googleusercontent.com")
+            .requestIdToken("664332059630-irunbdovoa2hbre47linnjk0m714663b.apps.googleusercontent.com")
             .build()
         return GoogleSignIn.getClient(context, gso)
     }

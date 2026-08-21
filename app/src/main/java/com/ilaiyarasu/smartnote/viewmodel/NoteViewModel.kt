@@ -155,10 +155,6 @@ class NoteViewModel(
         }
     }
 
-    suspend fun restoreAllNotes(restoredNotes: List<Note>) {
-        repository.replaceAllNotes(restoredNotes)
-    }
-
     suspend fun restoreNotesByOwner(owner: String, restoredNotes: List<Note>) {
         repository.replaceNotesByOwner(owner, restoredNotes)
     }

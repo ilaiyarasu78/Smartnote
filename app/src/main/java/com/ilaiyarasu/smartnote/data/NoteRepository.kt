@@ -43,11 +43,6 @@ class NoteRepository(private val noteDao: NoteDao) {
 
     suspend fun setReminder(noteId: String, time: Long?) = noteDao.setReminder(noteId, time)
 
-    suspend fun replaceAllNotes(notes: List<Note>) {
-        noteDao.deleteAllNotes()
-        noteDao.insertAll(notes)
-    }
-
     suspend fun replaceNotesByOwner(owner: String, notes: List<Note>) {
         noteDao.deleteNotesByOwner(owner)
         // Ensure every restored note is tagged with the current owner

@@ -20,7 +20,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Smartnote">
         <activity
-            android:name=".MainActivity"
+            android:name="com.ilaiyarasu.smartnote.MainActivity"
             android:exported="true"
             android:theme="@style/Theme.Smartnote"
             android:windowSoftInputMode="adjustResize">
@@ -41,8 +41,8 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
-        <receiver android:name=".util.ReminderReceiver" android:exported="false" />
-        <receiver android:name=".util.BootReceiver" android:exported="true">
+        <receiver android:name="com.ilaiyarasu.smartnote.util.ReminderReceiver" android:exported="false" />
+        <receiver android:name="com.ilaiyarasu.smartnote.util.BootReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
