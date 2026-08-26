@@ -22,7 +22,6 @@ import androidx.compose.ui.unit.sp
 import com.ilaiyarasu.smartnote.data.Note
 import com.ilaiyarasu.smartnote.data.noteTemplates
 import com.ilaiyarasu.smartnote.ui.components.LanguagePickerDropdown
-import com.ilaiyarasu.smartnote.ui.components.VoiceInputButton
 import com.ilaiyarasu.smartnote.util.ReminderScheduler
 import com.ilaiyarasu.smartnote.util.TextToSpeechHelper
 import com.ilaiyarasu.smartnote.util.TranslationHelper
@@ -266,12 +265,6 @@ fun AddEditNoteScreen(
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
             ) {
-                VoiceInputButton(
-                    onTextRecognized = { recognized ->
-                        content = if (content.isBlank()) recognized else "$content $recognized"
-                    }
-                )
-
                 TextButton(
                     onClick = {
                         isTranslating = true
